@@ -1,0 +1,636 @@
+//final change 5-22-22
+
+#include "Adafruit_Soundboard.h"
+
+//Adafruit Feather M4 Express, logic is 3.3V
+const int photodiodePin = A2;             // analog pin to read photodiode input
+const int volumeUp = 5;                   // GPIO pin for volume up switch
+const int volumeDown = 6;                 // GPIO pin for volume down switch
+const int soundboardActive = 12;          // GPIO pin to read whether soundboard is currently playing an audio file. LOW when file being played.
+const int onboardLed = 13;
+const int SFX_RST = 4;
+const int redLed = A3;
+const int greenLed = A4;
+const int zandarMode1Pin = 9;             // switch to determine Zandar mode
+const int zandarMode2Pin = 10;            // switch to determine Zandar mode
+const int ledPot = A0;                    // potentiometer to set photodiode light threshold for comparison
+
+uint8_t files = 0;                        // files variable will represent number of files on Adafruit Sound Board
+unsigned long currentMillis = 0;          // stores the value of millis() in each iteration of loop()
+unsigned long previousMillis = 0;
+unsigned long previousLedMillis = 0;      // will store last time the LED was updated
+unsigned long previousVolUpButtonMillis = 0;             // time when button press last checked
+unsigned long previousVolDownButtonMillis = 0;           // time when button press last checked
+byte ledState = LOW;                                    // LOW = off
+int ledOnInterval = 200;
+int ledOffInterval = 200;
+const int buttonVolUpInterval = 300;      // number of millisecs between button readings
+const int buttonVolDownInterval = 300;    // number of millisecs between button readings
+bool secondSwipe = false;
+bool randomIntervalsSet = false;           // LED on/off intervals
+float potValue = 0;                       //  potentiometer read value for photodiode thresholding
+
+int x = 0;
+int mode = 0;
+bool state1 = LOW;
+bool state2 = LOW;
+long startTime = 0;                        // start time for counter between first and second swipes
+long endTime = 0;                          // end time for counter between first and second swipes, to determine difference before timer reset
+int timeDiff = 8000;                       // time difference to compare against before reset
+int ledChoice = 0;
+
+int ledType[] = {3, 3, 3, 3, 2, 1, 2, 3, 1}; // 1 = positive/green, 2 = negative/red, 3 = neutral/yellow
+
+Adafruit_Soundboard sfx = Adafruit_Soundboard(&Serial1, NULL, SFX_RST);
+/////////////////////////////////////////////
+#define DEBUG 1
+#define USE_DEBUG_STRINGS 0
+
+#if(USE_DEBUG_STRINGS)
+
+String testStrings[] = {
+  "1test1.wav",
+  "2test2.wav",
+  "3test3.wav",
+  "4test4.wav",
+  "5test5.wav",
+  "6test6.wav",
+  "7test7.wav",
+  "8test8.wav",
+  "9test9.wav",
+  "3test4.wav",
+};
+#define NUM_OF_TEST_STRINGS 10
+
+#endif
+
+#define MAX_FILENAME_LENGTH 8
+#define MAX_FILES_PER_BANK 16
+#define NUMBER_OF_BANKS 9
+
+String bank1[MAX_FILES_PER_BANK];
+String bank2[MAX_FILES_PER_BANK];
+String bank3[MAX_FILES_PER_BANK];
+String bank4[MAX_FILES_PER_BANK];
+String bank5[MAX_FILES_PER_BANK];
+String bank6[MAX_FILES_PER_BANK];
+String bank7[MAX_FILES_PER_BANK];
+String bank8[MAX_FILES_PER_BANK];
+String bank9[MAX_FILES_PER_BANK];
+
+uint16_t bank1Count = 0;
+uint16_t bank2Count = 0;
+uint16_t bank3Count = 0;
+uint16_t bank4Count = 0;
+uint16_t bank5Count = 0;
+uint16_t bank6Count = 0;
+uint16_t bank7Count = 0;
+uint16_t bank8Count = 0;
+uint16_t bank9Count = 0;
+
+String *banks[] = {&bank1[0], &bank2[0], &bank3[0], &bank4[0],
+                   &bank5[0], &bank6[0], &bank7[0], &bank8[0],
+                   &bank9[0]
+                  };
+
+uint16_t *bankCounts[] = {&bank1Count, &bank2Count, &bank3Count, &bank4Count,
+                          &bank5Count, &bank6Count, &bank7Count, &bank8Count,
+                          &bank9Count
+                         };
+
+String GetRawFilename(uint32_t i) {
+#if(USE_DEBUG_STRINGS)
+  return testStrings[i];
+#else
+  return sfx.fileName(i);
+#endif
+}
+
+/*
+  PopulateBanks
+
+  Used to populate the banks for later script use.
+
+  Obtain number of files from the SFX board.
+  Scan through each filename by index, check the first character
+  to obtain desired bank, and then copy the filename into that
+  bank's array while keeping a count of sounds in that bank
+
+*/
+void PopulateBanks(void) {
+  uint16_t numberOfFiles = 0;
+  char bankPrefix = ' ';
+  uint8_t filesBank = 0;
+
+#if(USE_DEBUG_STRINGS)
+  numberOfFiles = NUM_OF_TEST_STRINGS;
+#else
+  numberOfFiles = sfx.listFiles();
+#endif
+
+  Serial.print("Num of files: "); Serial.println(numberOfFiles);
+
+  for (int i = 0; i < numberOfFiles; i++) {
+    for (int j = 0; j < MAX_FILENAME_LENGTH; j++) {
+      bankPrefix = GetRawFilename(i)[j]; //get first char of string, should be (0-9)
+      filesBank = (uint16_t)bankPrefix - 48; //ascii '0' == decimal 48, so subtract 48 to get un-ascii-fied number
+
+      if (filesBank == 0)
+        continue; //if a '0' is seen, continue indexing through
+
+#if(DEBUG)
+      Serial.print("index: "); Serial.print(i); Serial.println();
+      Serial.print("File name: "); Serial.print(GetRawFilename(i)); Serial.println();
+      Serial.print("File's parsed bank: "); Serial.print(filesBank); Serial.println();
+      Serial.println();
+#endif
+
+      if (filesBank >= 1 && filesBank <= 9) { //error checking for correctly parsed number in bounds
+        if (*bankCounts[filesBank - 1] < MAX_FILES_PER_BANK) { //check to see if still room in bank
+          banks[filesBank - 1][*bankCounts[filesBank - 1]] = GetRawFilename(i); //load file into bank at current bank's count
+          *bankCounts[filesBank - 1] += 1; //inc current bank's filecount
+          break;
+        } else {
+          Serial.println("Bank full");
+        }
+      } else {
+        //print error message
+        Serial.print("Failed to parse bank from: "); Serial.println(GetRawFilename(i));
+      }
+    }
+  }
+}
+
+
+/*
+  Print all of the bank's entries for testing
+
+  for example, for the following list of sounds
+  [
+  "1test1.wav",
+  "2test2.wav",
+  "3test3.wav",
+  "3test4.wav",
+  ]
+
+  should print:
+  ===============
+  Bank: 1   Num of Files: 1
+
+  Index: 0   Filename: 1test1.wav
+  ===============
+  Bank: 2   Num of Files: 1
+
+  Index: 0   Filename: 2test2.wav
+  ===============
+  Bank: 3   Num of Files: 2
+
+  Index: 0   Filename: 3test3.wav
+  Index: 1   Filename: 3test4.wav
+  ===============
+*/
+
+void PrintBanks(void) {
+  for (uint8_t i = 0; i < NUMBER_OF_BANKS; i++) {
+    Serial.println("===============");
+    Serial.print("Bank: "); Serial.print(i + 1);
+    Serial.print("   Num of Files: "); Serial.println(*bankCounts[i]); Serial.println();
+    for (uint8_t j = 0; j < *bankCounts[i]; j++) {
+      Serial.print("Index: "); Serial.print(j);
+      Serial.print("   Filename: "); Serial.println(banks[i][j]);
+    }
+  }
+  Serial.println("===============");
+}
+
+/////////////////////////////////////////////
+void setup() {
+  pinMode(photodiodePin, INPUT);
+  pinMode(zandarMode1Pin, INPUT_PULLUP);
+  pinMode(zandarMode2Pin, INPUT_PULLUP);
+  pinMode(volumeUp, INPUT_PULLUP);
+  pinMode(volumeDown, INPUT_PULLUP);
+  pinMode(soundboardActive, INPUT_PULLUP);
+  pinMode(onboardLed, OUTPUT);
+  pinMode(redLed, OUTPUT);
+  pinMode(greenLed, OUTPUT);
+  digitalWrite(onboardLed, LOW);
+  digitalWrite(redLed, false);
+  digitalWrite(greenLed, false);
+  analogReadResolution(12); //SAMD21 ADC can read 12-bit resolution as opposed to standard 10-bit with ATmega328 boards
+  Serial1.begin(9600);
+  delay(2000);
+
+  Serial.println("starting");
+  PopulateBanks();
+  PrintBanks(); //only needed to test if files populated correctly
+}
+
+void loop() {
+  currentMillis = millis();
+  readVolUpButton();
+  readVolDownButton();
+  determineMode();
+
+  switch (mode) {
+    case 1:                                                      //do something when mode equals 1
+      if ((secondSwipe == false) && readPhotosensor()) {
+        Serial.println("first swipe");
+        startTime = millis();
+        playRandSoundInBank(1); // first swipe sound effects
+        Serial.println("first swipe complete");
+        delay(500);
+        while (secondSwipe == false) {
+          while ((endTime - startTime) < timeDiff) {
+            endTime = millis();
+            readVolUpButton();
+            readVolDownButton();
+            if (readPhotosensor()) {
+              secondSwipe = true;
+              Serial.println("second swipe sensed");
+              break;
+            }
+          }
+          if ((endTime - startTime) >= timeDiff) {
+            Serial.println("second swipe timeout");
+          }
+          break;
+        }
+      }
+      if (secondSwipe == true) {
+        Serial.println("second swipe begin");
+        playRandSoundInBank(2); // second swipe sound effects
+        if (random(10) > 6) { // 30% chance of playing opening modifier
+          Serial.println("opening mod");
+          playRandSoundInBank(3); // opening modifier
+        }
+        if (random(2) == 0) { // 50% chance to select negative or positive
+          Serial.println("neg resp");
+          playRandSoundInBank(5); // simple negative responses bank
+        }
+        else {
+          Serial.println("pos resp");
+          playRandSoundInBank(6); // simple positive responses bank
+        }
+        if (random(10) == 9) {    // 10% chance of playing ending modifier
+          Serial.println("ending mod");
+          playRandSoundInBank(4); // ending modifier
+        }
+        secondSwipe = false;
+        Serial.println("second swipe complete");
+      }
+      break;
+    case 2:
+      if ((secondSwipe == false) && readPhotosensor()) {
+        Serial.println("first swipe");
+        startTime = millis();
+        playRandSoundInBank(1); // first swipe sound effects
+        Serial.println("first swipe complete");
+        delay(500);
+        while (secondSwipe == false) {
+          while ((endTime - startTime) < timeDiff) {
+            endTime = millis();
+            readVolUpButton();
+            readVolDownButton();
+            if (readPhotosensor()) {
+              secondSwipe = true;
+              Serial.println("second swipe sensed");
+              break;
+            }
+          }
+          if ((endTime - startTime) >= timeDiff) {
+            Serial.println("second swipe timeout");
+          }
+          break;
+        }
+      }
+      if (secondSwipe == true) {
+        Serial.println("second swipe begin");
+        playRandSoundInBank(2); // second swipe sound effects
+        if (random(10) > 6) { // 30% chance of playing opening modifier
+          Serial.println("opening mod");
+          playRandSoundInBank(3); // opening modifier
+        }
+        int complexResponseSelection = random(3);
+        if (complexResponseSelection == 0) { // 33% chance to select complex negative response
+          Serial.println("neg resp");
+          playRandSoundInBank(7); // complex negative responses bank
+        }
+        else if (complexResponseSelection == 1) { // 33% chance to select complex neutral response
+          Serial.println("neut resp");
+          playRandSoundInBank(8); // complex neutral responses bank
+        }
+        else if (complexResponseSelection == 2) { // 33% chance to select complex positive response
+          Serial.println("pos resp");
+          playRandSoundInBank(9); // complex positive responses bank
+        }
+        if (random(10) == 9) {    // 10% chance of playing ending modifier
+          Serial.println("ending mod");
+          playRandSoundInBank(4); // ending modifier
+        }
+        secondSwipe = false;
+        Serial.println("second swipe complete");
+      }
+      break;
+    case 3:
+      if ((secondSwipe == false) && readPhotosensor()) {
+        Serial.println("first swipe");
+        startTime = millis();
+        playRandSoundInBank(1); // first swipe sound effects
+        Serial.println("first swipe complete");
+        delay(500);
+        while (secondSwipe == false) {
+          while ((endTime - startTime) < timeDiff) {
+            endTime = millis();
+            readVolUpButton();
+            readVolDownButton();
+            if (readPhotosensor()) {
+              secondSwipe = true;
+              Serial.println("second swipe sensed");
+              break;
+            }
+          }
+          if ((endTime - startTime) >= timeDiff) {
+            Serial.println("second swipe timeout");
+          }
+          break;
+        }
+      }
+      if (secondSwipe == true) {
+        Serial.println("second swipe begin");
+        playRandSoundInBank(2); // second swipe sound effects
+        playRandSoundInBank(5); // random sound in bank 5, negative simple responses
+        secondSwipe = false;
+        Serial.println("second swipe complete");
+      }
+      break;
+    case 4:
+      if ((secondSwipe == false) && readPhotosensor()) {
+        Serial.println("first swipe");
+        startTime = millis();
+        playRandSoundInBank(1); // first swipe sound effects
+        Serial.println("first swipe complete");
+        delay(500);
+        while (secondSwipe == false) {
+          while ((endTime - startTime) < timeDiff) {
+            endTime = millis();
+            readVolUpButton();
+            readVolDownButton();
+            if (readPhotosensor()) {
+              secondSwipe = true;
+              Serial.println("second swipe sensed");
+              break;
+            }
+          }
+          if ((endTime - startTime) >= timeDiff) {
+            Serial.println("second swipe timeout");
+          }
+          break;
+        }
+      }
+      if (secondSwipe == true) {
+        Serial.println("second swipe begin");
+        playRandSoundInBank(2); // second swipe sound effects
+        playRandSoundInBank(6); // random sound in bank 6, positive simple responses
+        secondSwipe = false;
+        Serial.println("second swipe complete");
+      }
+      break;
+  }
+}
+
+bool readPhotosensor() {
+  // with 12-bit resolution, 4096 corresponds to the maximum 3.3V input voltage
+  // experimentally determined that photodiode output dips to 320mV from 1V baseline when powered by battery and a hand is waved over it
+  float photoThreshold = readPotentiometer(); // formerly hard-set at 0.32 based on 320mV threshold
+  float photodiodeOutput = analogRead(photodiodePin) * 3.3 / 4096.0;
+  Serial.print("Pot out: "); Serial.print(photoThreshold); Serial.print(". Photodiode out: "); Serial.println(photodiodeOutput);
+  //Serial.println(photodiodeOutput);
+  return (photodiodeOutput < photoThreshold);
+}
+
+int determineMode() {
+  // Switches flipped down (towards user) = 0V, LOW. Switched up (towards Zandar) = HIGH
+  // Switches are in order. Left switch = GPIO #9, right switch = GPIO #10
+  state1 = digitalRead(zandarMode1Pin);
+  state2 = digitalRead(zandarMode2Pin);
+  if ((state1 == LOW) && (state2 == LOW)) {
+    mode = 1;
+  }
+  else if ((state1 == HIGH) && (state2 == LOW)) {
+    mode = 2;
+  }
+  else if ((state1 == LOW) && (state2 == HIGH)) {
+    mode = 3;
+  }
+  else if ((state1 == HIGH) && (state2 == HIGH)) {
+    mode = 4;
+  }
+  return mode;
+}
+
+void switchLeds(int ledColor) { // this is the code that actually switches the LEDs on and off
+  switch (ledColor) {
+    case 1:                         // POSITIVE/GREEN
+      if (randomIntervalsSet == false) {
+        ledOnInterval = random(200, 400);
+        ledOffInterval = random(100, 500);
+        randomIntervalsSet = true;
+      }
+
+      currentMillis = millis();
+
+      if (ledState == HIGH) {
+        if (currentMillis - previousLedMillis >= ledOnInterval) {
+          digitalWrite(greenLed, LOW);
+          digitalWrite(redLed, LOW);
+          ledState = LOW;
+          previousLedMillis = currentMillis;
+        }
+      }
+      else if (ledState == LOW) {
+        if (currentMillis - previousLedMillis >= ledOffInterval) {
+          digitalWrite(greenLed, HIGH);
+          digitalWrite(redLed, LOW);
+          ledState = HIGH;
+          previousLedMillis = currentMillis;
+          randomIntervalsSet = false;
+        }
+      }
+      break;
+    case 2:                         // NEGATIVE/RED
+      if (randomIntervalsSet == false) {
+        ledOnInterval = random(200, 400);
+        ledOffInterval = random(100, 500);
+        randomIntervalsSet = true;
+      }
+
+      currentMillis = millis();
+
+      if (ledState == HIGH) {
+        if (currentMillis - previousLedMillis >= ledOnInterval) {
+          digitalWrite(greenLed, LOW);
+          digitalWrite(redLed, LOW);
+          ledState = LOW;
+          previousLedMillis = currentMillis;
+        }
+      }
+      else if (ledState == LOW) {
+        if (currentMillis - previousLedMillis >= ledOffInterval) {
+          digitalWrite(greenLed, LOW);
+          digitalWrite(redLed, HIGH);
+          ledState = HIGH;
+          previousLedMillis = currentMillis;
+          randomIntervalsSet = false;
+        }
+      }
+      break;
+    case 3:                         // NEUTRAL/YELLOW
+      if (randomIntervalsSet == false) {
+        ledOnInterval = random(200, 400);
+        ledOffInterval = random(100, 500);
+        randomIntervalsSet = true;
+      }
+
+      currentMillis = millis();
+
+      if (ledState == HIGH) {
+        if (currentMillis - previousLedMillis >= ledOnInterval) {
+          digitalWrite(greenLed, LOW);
+          digitalWrite(redLed, LOW);
+          ledState = LOW;
+          previousLedMillis = currentMillis;
+        }
+      }
+      else if (ledState == LOW) {
+        if (currentMillis - previousLedMillis >= ledOffInterval) {
+          digitalWrite(greenLed, HIGH);
+          digitalWrite(redLed, HIGH);
+          ledState = HIGH;
+          previousLedMillis = currentMillis;
+          randomIntervalsSet = false;
+        }
+      }
+      break;
+    case 4:                         // LEDS OFF
+      digitalWrite(greenLed, LOW);
+      digitalWrite(redLed, LOW);
+      break;
+  }
+}
+
+void readVolUpButton() {
+  if (millis() - previousVolUpButtonMillis >= buttonVolUpInterval) {
+    if (digitalRead(volumeUp) == LOW) {
+      sfx.volUp();
+      sfx.volUp();
+      previousVolUpButtonMillis += buttonVolUpInterval;
+      Serial.println("vol up");
+    }
+  }
+}
+
+void readVolDownButton() {
+  if (millis() - previousVolDownButtonMillis >= buttonVolDownInterval) {
+    if (digitalRead(volumeDown) == LOW) {
+      sfx.volDown();
+      sfx.volDown();
+      previousVolDownButtonMillis += buttonVolDownInterval;
+      Serial.println("vol down");
+    }
+  }
+}
+
+float readPotentiometer() {
+  potValue = analogRead(ledPot); // Counterclockwise turn of pot decreases threshold, decreases sensitivity
+  float potValueOut = (potValue - 0) * (0 - 1) / (4096 - 0) + 1; // 4096 because of 12-bit resolution
+  return potValueOut;
+}
+
+void playRandSoundInBank(int bankNum) {
+  int randomIndex = random(*bankCounts[bankNum - 1]);
+  playSoundByBankAndIndex(bankNum, randomIndex);
+}
+
+int playSoundByBankAndIndex(int bankNum, int index) {
+  //check bounds
+  if (bankNum > NUMBER_OF_BANKS) {
+    Serial.println("Failed to play (bankNum > num of banks)");
+    Serial.print("Bank: ");
+    Serial.print(bankNum);
+    Serial.print(" Index: ");
+    Serial.println(index);
+    Serial.println("");
+    return -1;
+  }
+
+  int bankSize = *bankCounts[bankNum - 1];
+  if (index + 1 > bankSize) { //index starts at 0 but bankSize starts at 1
+    Serial.println("Failed to play (index out of bounds)");
+    Serial.print("Bank: ");
+    Serial.print(bankNum);
+    Serial.print(" Index: ");
+    Serial.println(index);
+    Serial.println("");
+    return -2; //index out of bounds
+  }
+
+  Serial.print("Playing Bank: ");
+  Serial.print(bankNum);
+  Serial.print(" Index: ");
+  Serial.println(index);  //get sound's string and convert to array
+
+  //buffer for string
+  char soundToPlayChar[21];
+  String soundToPlayString = banks[bankNum - 1][index];
+  soundToPlayString.toCharArray(soundToPlayChar, 20);
+
+  //play track
+  ledChoice = ledType[bankNum - 1];
+  sfx.playTrack(soundToPlayChar);
+  randomIntervalsSet = false;
+  ledState = LOW;
+  delay(200);
+  previousLedMillis = millis();
+  while (digitalRead(soundboardActive) == LOW) {
+    switchLeds(ledChoice);
+  }
+  switchLeds(4);
+  return 1;
+}
+
+/*
+  10000000 - [first swipe effects begin]
+  ...
+  10000009 - [first swipe effects end, 10 total]
+  20000010 - [second swipe effects begin]
+  ...
+  20000017 - [second swipe effects end, 8 total]
+  30000018 - According to my crystal ball [beginning modifiers begin]
+  30000019 - Are you kidding?
+  30000020 - Good question
+  30000021 - Ha ha ha!
+  30000022 - Hmm, ah well... [beginning modifiers end, 5 total]
+  40000023 - [THUNDERCLAP] [ending modifier]
+  50000024 - I don't think so [simple mode negative answers begin]
+  50000025 - It's very doubtful
+  50000026 - No way
+  50000027 - Not a chance
+  50000028 - Not in this lifetime [simple mode negative answers end, 5 total]
+  60000029 - Absolutely [simple mode positive answers begin]
+  60000030 - Definitely
+  60000031 - Excellent chance
+  60000032 - Sure, er, why not?
+  60000033 - Yes [simple mode positive answers end, 5 total]
+  70000034 - Oh, you don't need to worry about this [complex mode negative answers begin]
+  70000035 - Think carefully before deciding about this
+  70000036 - This will turn out differently than you expect
+  70000037 - You will change your mind about this [complex mode negative answers end, 4 total]
+  80000038 - Ask one of your friends [complex mode neutral answers begin]
+  80000039 - Seek advice about this soon
+  80000040 - Very interesting! Eh, what was the question?
+  80000041 - You will get a phonecall about this [complex mode neutral answers end, 4 total]
+  90000042 - This will bring you much happiness! [complex mode positive answers begin]
+  90000043 - This will make you famous!
+  90000044 - Your hopes about this will come true [complex mode positive answers end, 3 total]
+*/
