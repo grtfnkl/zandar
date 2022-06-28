@@ -1,0 +1,33 @@
+10000000 - [first swipe effects begin]
+...
+10000009 - [first swipe effects end, 10 total]
+20000010 - [second swipe effects begin]
+...
+20000017 - [second swipe effects end, 8 total]
+30000018 - According to my crystal ball [beginning modifiers begin]
+30000019 - Are you kidding?
+30000020 - Good question
+30000021 - Ha ha ha!
+30000022 - Hmm, ah well... [beginning modifiers end, 5 total]
+40000023 - [THUNDERCLAP] [ending modifier]
+50000024 - I don't think so [simple mode negative answers begin]
+50000025 - It's very doubtful
+50000026 - No way
+50000027 - Not a chance
+50000028 - Not in this lifetime [simple mode negative answers end, 5 total]
+60000029 - Absolutely [simple mode positive answers begin]
+60000030 - Definitely
+60000031 - Excellent chance
+60000032 - Sure, er, why not?
+60000033 - Yes [simple mode positive answers end, 5 total]
+70000034 - Oh, you don't need to worry about this [complex mode negative answers begin]
+70000035 - Think carefully before deciding about this
+70000036 - This will turn out differently than you expect
+70000037 - You will change your mind about this [complex mode negative answers end, 4 total]
+80000038 - Ask one of your friends [complex mode neutral answers begin]
+80000039 - Seek advice about this soon
+80000040 - Very interesting! Eh, what was the question?
+80000041 - You will get a phonecall about this [complex mode neutral answers end, 4 total]
+90000042 - This will bring you much happiness! [complex mode positive answers begin]
+90000043 - This will make you famous!
+90000044 - Your hopes about this will come true [complex mode positive answers end, 3 total]
